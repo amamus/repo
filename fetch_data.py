@@ -31,8 +31,11 @@ REAL_DOWNLOAD_ECOSYSTEMS = {"npm", "Packagist", "RubyGems"}
 OWNCLOUD_REPOS = [
     "owncloud/core",
     "owncloud/ocis",
+    "owncloud/ocis-mcp-server",
     "owncloud/web",
+    "owncloud/web-extensions",
     "owncloud/android",
+    "owncloud/ios",
     "owncloud/client",
 ]
 
@@ -40,7 +43,24 @@ OWNCLOUD_REPOS = [
 DOCKER_IMAGES = [
     "owncloud",
     "owncloud/ocis",
+    "owncloud/ocis-mcp-server",
+    "owncloud/core",
+    "owncloud/web",
+    "owncloud/android",
+    "owncloud/ios",
+    "owncloud/client",
 ]
+
+# All ecosyste.ms supported package ecosystems
+PACKAGE_ECOSYSTEMS = [
+    "npm", "Packagist", "RubyGems", "PyPI", "Maven", "NuGet", 
+    "crates.io", "Go", "Hex", "Pub", "Conda", "Alpine", 
+    "Debian", "Fedora", "Homebrew", "Chocolatey", "Scoop",
+    "Cargo", "Hackage", "Clojars", "Julia",
+]
+
+# All ecosyste.ms supported repository hosts
+REPO_HOSTS = ["GitHub", "GitLab"]
 
 
 class APIClient:
@@ -58,9 +78,8 @@ class APIClient:
 
     def _get_cache_path(self, url: str) -> Path:
         """Get cache file path for a URL."""
-        # Create a safe filename from URL
-        safe_name = url.replace("https://", "").replace("/", "_").replace("?", "-").replace("&", "-")
-        return self.cache_dir / f"{safe_name}.json"
+        safe_name = url.replace("https://", "").replace("/", "_").replace("?", "-").replace("&", "-").replace("%2F", "_").replace("%252F", "_")
+        return self.cache_dir / f"{safe_name[:200]}.json"
 
     def _is_cache_valid(self, cache_path: Path) -> bool:
         """Check if cache is still valid."""
@@ -81,33 +100,28 @@ class APIClient:
         """Get data from API with caching."""
         cache_path = self._get_cache_path(url)
 
-        # Check cache
         if not force_refresh and self._is_cache_valid(cache_path):
             with open(cache_path, "r") as f:
                 return json.load(f)
 
-        # Make request with retry
         for attempt in range(3):
             try:
                 self._enforce_rate_limit()
                 response = self.session.get(url, timeout=30)
                 
                 if response.status_code == 429:
-                    # Rate limited, wait and retry
                     retry_after = int(response.headers.get("Retry-After", 60))
                     print(f"Rate limited, waiting {retry_after} seconds...")
                     time.sleep(retry_after)
                     continue
                 
                 if response.status_code == 500:
-                    # Server error, retry with backoff
                     time.sleep(2 ** attempt)
                     continue
                     
                 response.raise_for_status()
                 data = response.json()
 
-                # Cache response
                 with open(cache_path, "w") as f:
                     json.dump(data, f, indent=2)
                 
@@ -133,7 +147,6 @@ def fetch_package_data(client: APIClient) -> Dict[str, Any]:
         data = client.get(url)
         
         if data and isinstance(data, list):
-            # Group by ecosystem
             packages_by_ecosystem = {}
             for pkg in data:
                 ecosystem = pkg.get("ecosystem", "unknown")
@@ -141,10 +154,8 @@ def fetch_package_data(client: APIClient) -> Dict[str, Any]:
                     packages_by_ecosystem[ecosystem] = []
                 packages_by_ecosystem[ecosystem].append(pkg)
             
-            # Deduplicate by ecosystem (keep first)
             deduped = {}
             for ecosystem, packages in packages_by_ecosystem.items():
-                # Use the package with the most recent version
                 sorted_packages = sorted(
                     packages, 
                     key=lambda p: p.get("latest_release_published_at", ""),
@@ -155,7 +166,6 @@ def fetch_package_data(client: APIClient) -> Dict[str, Any]:
             
             results[name] = deduped
         elif data and "package" in data:
-            # Group by ecosystem
             packages_by_ecosystem = {}
             for pkg in data["package"]:
                 ecosystem = pkg.get("ecosystem", "unknown")
@@ -163,10 +173,8 @@ def fetch_package_data(client: APIClient) -> Dict[str, Any]:
                     packages_by_ecosystem[ecosystem] = []
                 packages_by_ecosystem[ecosystem].append(pkg)
             
-            # Deduplicate by ecosystem (keep first)
             deduped = {}
             for ecosystem, packages in packages_by_ecosystem.items():
-                # Use the package with the most recent version
                 sorted_packages = sorted(
                     packages, 
                     key=lambda p: p.get("latest_release_published_at", ""),
@@ -187,24 +195,21 @@ def fetch_repo_data(client: APIClient) -> Dict[str, Any]:
     results = {}
     
     for repo_name in OWNCLOUD_REPOS:
-        # URL encode the repo name
         encoded_repo = repo_name.replace("/", "%2F")
         url = f"{REPOS_API}/hosts/GitHub/repositories/{encoded_repo}"
         data = client.get(url)
         
-        if data and "repository" in data:
-            repo_data = data["repository"]
+        if data:
+            repo_data = data
             
-            # Get releases
             releases_url = f"{REPOS_API}/hosts/GitHub/repositories/{encoded_repo}/releases"
             releases_data = client.get(releases_url)
             
-            if releases_data and "releases" in releases_data:
-                repo_data["releases"] = releases_data["releases"]
+            if releases_data:
+                repo_data["releases"] = releases_data
             else:
                 repo_data["releases"] = []
             
-            # Calculate total release downloads
             total_downloads = 0
             release_time_series = []
             
@@ -219,7 +224,6 @@ def fetch_repo_data(client: APIClient) -> Dict[str, Any]:
                 
                 total_downloads += release_downloads
                 
-                # Store time series data
                 published_at = release.get("published_at", release.get("created_at", ""))
                 release_time_series.append({
                     "tag": release.get("tag_name", "unknown"),
@@ -249,13 +253,17 @@ def fetch_docker_data(client: APIClient) -> Dict[str, Any]:
         url = f"{DOCKER_API}/api/v1/packages/lookup?ecosystem=Docker%20Hub&name={image_name}"
         data = client.get(url)
         
-        if data and "package" in data:
+        if data and isinstance(data, list):
+            for pkg in data:
+                if pkg.get("name") == image_name:
+                    results[image_name] = pkg
+                    break
+        elif data and "package" in data:
             for pkg in data["package"]:
                 if pkg.get("name") == image_name:
                     results[image_name] = pkg
                     break
     
-    # Also try direct Docker API
     for image_name in DOCKER_IMAGES:
         if image_name not in results:
             url = f"{DOCKER_API}/v1/repositories/{image_name}"
@@ -266,7 +274,45 @@ def fetch_docker_data(client: APIClient) -> Dict[str, Any]:
     return results
 
 
-def save_raw_data(package_data: Dict, repo_data: Dict, docker_data: Dict):
+def fetch_comprehensive_package_data(client: APIClient, base_name: str) -> Dict[str, Any]:
+    """Fetch package data across all ecosystems for a given name."""
+    results = {}
+    
+    for ecosystem in PACKAGE_ECOSYSTEMS:
+        url = f"{PACKAGES_API}/packages/lookup?ecosystem={ecosystem}&name={base_name}"
+        data = client.get(url)
+        
+        if data:
+            if isinstance(data, list):
+                if data:
+                    results[ecosystem] = data[0]
+            elif isinstance(data, dict):
+                if "package" in data and data["package"]:
+                    results[ecosystem] = data["package"][0]
+    
+    return results
+
+
+def fetch_repo_across_hosts(client: APIClient, base_name: str) -> Dict[str, Any]:
+    """Fetch repository data across all supported hosts."""
+    results = {}
+    
+    for host in REPO_HOSTS:
+        if host == "GitHub":
+            encoded_repo = f"owncloud%2F{base_name}"
+        else:
+            encoded_repo = base_name
+        
+        url = f"{REPOS_API}/hosts/{host}/repositories/{encoded_repo}"
+        data = client.get(url)
+        
+        if data:
+            results[f"{host}/{base_name}"] = data
+    
+    return results
+
+
+def save_raw_data(package_data: Dict, repo_data: Dict, docker_data: Dict, comprehensive_data: Dict):
     """Save raw API responses to data directory."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -278,6 +324,9 @@ def save_raw_data(package_data: Dict, repo_data: Dict, docker_data: Dict):
     
     with open(DATA_DIR / "docker_raw.json", "w") as f:
         json.dump(docker_data, f, indent=2)
+    
+    with open(DATA_DIR / "comprehensive_raw.json", "w") as f:
+        json.dump(comprehensive_data, f, indent=2)
 
 
 def generate_table_rows(downloads_list):
@@ -336,17 +385,29 @@ def generate_docker_items(docker_data_list):
     return '\n'.join(items)
 
 
-def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict):
+def generate_comprehensive_table_rows(comprehensive_summary):
+    """Generate HTML table rows for comprehensive provider coverage."""
+    rows = []
+    for repo_name, summary in comprehensive_summary.items():
+        packages = ", ".join(summary['packages']) if summary['packages'] else '<span class="null-value">None</span>'
+        repos = ", ".join(summary['repos']) if summary['repos'] else '<span class="null-value">None</span>'
+        rows.append(f'''                <tr>
+                    <td><strong>{repo_name}</strong></td>
+                    <td>{packages}</td>
+                    <td>{repos}</td>
+                </tr>''')
+    return '\n'.join(rows)
+
+
+def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict, comprehensive_data: Dict = None):
     """Generate the static HTML report."""
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
     
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     
-    # Prepare package data for display
     owncloud_packages = package_data.get("owncloud", {})
     ocis_packages = package_data.get("ocis", {})
     
-    # Build real downloads section
     real_downloads = []
     
     for name, packages in [("ownCloud", owncloud_packages), ("oCIS", ocis_packages)]:
@@ -363,14 +424,12 @@ def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict)
                 "is_real": ecosystem_name in REAL_DOWNLOAD_ECOSYSTEMS,
             })
     
-    # Sort real downloads by download count
     real_downloads_sorted = sorted(
         [d for d in real_downloads if d["is_real"]],
         key=lambda x: x["downloads"] or 0,
         reverse=True
     )
     
-    # Prepare repo data for charting
     repo_downloads_data = []
     for repo_name, repo_info in repo_data.items():
         total = repo_info.get("total_release_downloads", 0)
@@ -381,10 +440,8 @@ def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict)
                 "time_series": repo_info.get("release_time_series", []),
             })
     
-    # Sort repos by total downloads
     repo_downloads_data.sort(key=lambda x: x["total"], reverse=True)
     
-    # Prepare Docker data
     docker_packages = []
     for image_name, pkg in docker_data.items():
         dependents = pkg.get("dependent_repos_count", 0) or pkg.get("dependent_packages_count", 0) or 0
@@ -393,16 +450,22 @@ def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict)
             "dependents": dependents,
         })
     
-    # Generate HTML parts
+    comprehensive_summary = {}
+    if comprehensive_data:
+        for repo_name, data in comprehensive_data.items():
+            comprehensive_summary[repo_name] = {
+                "packages": list(data.get("packages", {}).keys()),
+                "repos": list(data.get("repos", {}).keys()),
+            }
+    
     table_rows = generate_table_rows(real_downloads_sorted)
     repo_items = generate_repo_items(repo_downloads_data)
     docker_items = generate_docker_items(docker_packages)
+    comprehensive_table_rows = generate_comprehensive_table_rows(comprehensive_summary)
     
-    # JSON data for charts
     real_downloads_sorted_json = json.dumps(real_downloads_sorted)
     repo_downloads_data_json = json.dumps(repo_downloads_data)
     
-    # Build HTML
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -662,6 +725,29 @@ def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict)
         
         <h3>Docker Dependent Packages</h3>
 {docker_items}
+        
+        <h3>Comprehensive Provider Coverage</h3>
+        <p class="description">
+            Full list of ecosyste.ms-supported providers checked for each project:
+        </p>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th>Package Registries Found</th>
+                    <th>Repository Hosts Found</th>
+                </tr>
+            </thead>
+            <tbody>
+{comprehensive_table_rows}
+            </tbody>
+        </table>
+        
+        <div class="caveat">
+            <strong>Note:</strong> This shows which ecosyste.ms-supported providers have data for each project. 
+            Empty cells mean no packages were found in that registry for the project name.
+        </div>
     </div>
 
     <!-- Section 3: Not Covered -->
@@ -690,7 +776,6 @@ def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict)
     </div>
 
     <script>
-        // Real Downloads Chart
         const realDownloadsCtx = document.getElementById('realDownloadsChart').getContext('2d');
         const realDownloadsData = {real_downloads_sorted_json};
         
@@ -736,19 +821,17 @@ def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict)
             }}
         }});
         
-        // Repository Downloads Chart
         const repoDownloadsCtx = document.getElementById('repoDownloadsChart').getContext('2d');
         const repoDownloadsData = {repo_downloads_data_json};
         
-        // Build time series for all repos
         const allRepoSeries = [];
-        const colorPalette = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f1c40f', '#1abc9c', '#d35400'];
+        const colorPalette = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f1c40f', '#1abc9c', '#d35400', '#34495e'];
         
         repoDownloadsData.forEach((repo, index) => {{
             const series = repo.time_series.map(r => ({{
                 x: r.published_at || new Date().toISOString(),
                 y: r.downloads || 0
-            }})).reverse(); // Reverse to get chronological order
+            }})).reverse();
             
             allRepoSeries.push({{
                 label: repo.repo,
@@ -814,7 +897,6 @@ def generate_html_report(package_data: Dict, repo_data: Dict, docker_data: Dict)
 </html>
 """
     
-    # Write HTML file
     with open(DOCS_DIR / "index.html", "w") as f:
         f.write(html)
     
@@ -827,16 +909,21 @@ def main():
     
     client = APIClient()
     
-    # Fetch all data
     package_data = fetch_package_data(client)
     repo_data = fetch_repo_data(client)
     docker_data = fetch_docker_data(client)
     
-    # Save raw data
-    save_raw_data(package_data, repo_data, docker_data)
+    comprehensive_data = {}
+    for repo_name in OWNCLOUD_REPOS:
+        base_name = repo_name.split("/")[-1] if "/" in repo_name else repo_name
+        
+        comprehensive_data[repo_name] = {
+            "packages": fetch_comprehensive_package_data(client, base_name),
+            "repos": fetch_repo_across_hosts(client, base_name),
+        }
     
-    # Generate report
-    generate_html_report(package_data, repo_data, docker_data)
+    save_raw_data(package_data, repo_data, docker_data, comprehensive_data)
+    generate_html_report(package_data, repo_data, docker_data, comprehensive_data)
     
     print("\nData fetch and report generation complete!")
     print(f"Raw data cached in: {DATA_DIR}")
