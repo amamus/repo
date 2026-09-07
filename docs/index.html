@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ownCloud & oCIS Ecosystem Adoption Metrics</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .timestamp {
+            font-size: 12px;
+            color: #888;
+            text-align: right;
+            margin-bottom: 20px;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #3498db;
+        }
+        
+        .section .description {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .caveat {
+            background-color: #fff8e1;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .caveat strong {
+            color: #ff9800;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 20px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background-color: #f9f9f9;
+        }
+        
+        .download-count {
+            font-family: monospace;
+            font-weight: bold;
+        }
+        
+        .null-value {
+            color: #999;
+            font-style: italic;
+        }
+        
+        .ecosystem-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+        
+        .ecosystem-real {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .ecosystem-partial {
+            background-color: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .ecosystem-null {
+            background-color: #f5f5f5;
+            color: #666;
+        }
+        
+        .data-source {
+            font-size: 12px;
+            color: #888;
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .not-covered {
+            background-color: #f8f8f8;
+            padding: 20px;
+            border-radius: 4px;
+            border: 1px dashed #ccc;
+        }
+        
+        .not-covered h3 {
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .not-covered ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .not-covered li {
+            padding: 5px 0;
+            color: #888;
+        }
+        
+        .repo-list {
+            margin: 20px 0;
+        }
+        
+        .repo-item {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .repo-name {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .repo-stats {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>ownCloud & oCIS Ecosystem Adoption Metrics</h1>
+    <p class="subtitle">Open source package and repository statistics from ecosyste.ms APIs</p>
+    <p class="timestamp">Last updated: 2026-09-07 09:11:14 UTC</p>
+    
+    <div class="data-source">
+        <strong>Data Source:</strong> <a href="https://ecosyste.ms">ecosyste.ms</a> family of APIs
+        (<a href="https://packages.ecosyste.ms">packages</a>, 
+        <a href="https://repos.ecosyste.ms">repos</a>, 
+        <a href="https://docker.ecosyste.ms">docker</a>)
+    </div>
+
+    <!-- Section 1: Real Download/Install Counters -->
+    <div class="section">
+        <h2>&#10003; Real Download/Install Counters</h2>
+        <p class="description">
+            These are genuine, comparable download/install statistics from package registries 
+            that expose reliable counters. 
+            <strong>Ecosystems tracked: npm, Packagist, RubyGems</strong>
+        </p>
+        
+        <div class="caveat">
+            <strong>&#9888;&#65039; Important:</strong> These figures represent package manager install/download counts, 
+            not necessarily unique users or deployments. Different registries have different counting 
+            methodologies and update frequencies.
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="realDownloadsChart"></canvas>
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th>Ecosystem</th>
+                    <th>Package Name</th>
+                    <th>Version</th>
+                    <th>Downloads</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>ownCloud</td>
+                    <td><span class="ecosystem-tag ecosystem-real">npm</span></td>
+                    <td>owncloud</td>
+                    <td>N/A</td>
+                    <td class="download-count">135</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Section 2: Partial Adoption Signals -->
+    <div class="section">
+        <h2>&#128200; Partial Adoption Signals</h2>
+        <p class="description">
+            These metrics provide adoption signals but may not be directly comparable or comprehensive.
+        </p>
+        
+        <div class="caveat">
+            <strong>&#9888;&#65039; Important:</strong> GitHub release asset downloads are per-asset and may be 
+            counted differently across repositories. Docker dependent counts reflect packages that 
+            depend on these images, not direct usage.
+        </div>
+        
+        <h3>GitHub Release Asset Downloads</h3>
+        <div class="chart-container">
+            <canvas id="repoDownloadsChart"></canvas>
+        </div>
+        
+        <div class="repo-list">
+
+        </div>
+        
+        <h3>Docker Dependent Packages</h3>
+
+    </div>
+
+    <!-- Section 3: Not Covered -->
+    <div class="section">
+        <h2>&#10060; Not Covered by ecosyste.ms</h2>
+        <p class="description">
+            The following data sources exist but are not exposed through ecosyste.ms APIs:
+        </p>
+        
+        <div class="not-covered">
+            <ul>
+                <li><strong>Docker Hub total pulls:</strong> Available via Docker Hub API but not aggregated in ecosyste.ms</li>
+                <li><strong>download.owncloud.com tarball downloads:</strong> ownCloud's own download server statistics</li>
+                <li><strong>PyPI download statistics:</strong> PyPI removed native download stats in 2018</li>
+                <li><strong>Marketplace/extension downloads:</strong> ownCloud app marketplace statistics</li>
+                <li><strong>Enterprise/on-premise deployments:</strong> Not trackable via public registries</li>
+            </ul>
+        </div>
+        
+        <p>
+            <strong>Note:</strong> This page intentionally separates "real" download counters from 
+            partial signals to avoid implying that the data presents a complete adoption picture. 
+            The ecosyste.ms project aggregates data from many sources, but some important metrics 
+            remain outside its scope.
+        </p>
+    </div>
+
+    <script>
+        // Real Downloads Chart
+        const realDownloadsCtx = document.getElementById('realDownloadsChart').getContext('2d');
+        const realDownloadsData = [{"name": "ownCloud", "ecosystem": "npm", "package": "owncloud", "version": "", "downloads": 135, "is_real": true}];
+        
+        const realValues = realDownloadsData.map(d => d.downloads || 0);
+        
+        new Chart(realDownloadsCtx, {
+            type: 'bar',
+            data: {
+                labels: realDownloadsData.map(d => d.name + ' (' + d.ecosystem + ')'),
+                datasets: [{
+                    label: 'Downloads',
+                    data: realValues,
+                    backgroundColor: '#3498db',
+                    borderColor: '#2980b9',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.parsed.y.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Repository Downloads Chart
+        const repoDownloadsCtx = document.getElementById('repoDownloadsChart').getContext('2d');
+        const repoDownloadsData = [];
+        
+        // Build time series for all repos
+        const allRepoSeries = [];
+        const colorPalette = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f1c40f', '#1abc9c', '#d35400'];
+        
+        repoDownloadsData.forEach((repo, index) => {
+            const series = repo.time_series.map(r => ({
+                x: r.published_at || new Date().toISOString(),
+                y: r.downloads || 0
+            })).reverse(); // Reverse to get chronological order
+            
+            allRepoSeries.push({
+                label: repo.repo,
+                data: series,
+                borderColor: colorPalette[index % colorPalette.length],
+                backgroundColor: colorPalette[index % colorPalette.length] + '40',
+                tension: 0.1,
+                fill: false
+            });
+        });
+        
+        new Chart(repoDownloadsCtx, {
+            type: 'line',
+            data: {
+                datasets: allRepoSeries
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'month',
+                            displayFormats: {
+                                month: 'MMM YYYY'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Release Date'
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return value.toLocaleString();
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Downloads per Release'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'right'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
